@@ -7,43 +7,59 @@ import { generateStandaloneHTML } from './services/htmlGenerator';
 import { updateWordPressPage } from './services/wordpressService';
 
 const App: React.FC = () => {
-  const [campaigns, setCampaigns] = useState<Campaign[]>(() => {
-    const saved = localStorage.getItem('campaigns');
-    return saved ? JSON.parse(saved) : DEFAULT_CAMPAIGNS;
-  });
+  const [loading, setLoading] = useState(true);
+
+  const defaultSettings = {
+    pageTitle: 'Özel İndirim Rehberim',
+    description: 'En sevilen markalarda bugüne özel Hepsiburada fırsatlarını senin için listeledim.',
+    headerImageUrl: '',
+    primaryColor: '#FF6000'
+  };
+
+  const defaultWPSettings = {
+    siteUrl: '',
+    pageId: '',
+    username: '',
+    appPassword: ''
+  };
+
+  const [campaigns, setCampaigns] = useState<Campaign[]>(DEFAULT_CAMPAIGNS);
+  const [settings, setSettings] = useState<SiteSettings>(defaultSettings);
+  const [wpSettings, setWPSettings] = useState<WPSettings>(defaultWPSettings);
 
   useEffect(() => {
-    localStorage.setItem('campaigns', JSON.stringify(campaigns));
-  }, [campaigns]);
-  const [settings, setSettings] = useState<SiteSettings>(() => {
-    const saved = localStorage.getItem('siteSettings');
-    const defaults = {
-      pageTitle: 'Özel İndirim Rehberim',
-      description: 'En sevilen markalarda bugüne özel Hepsiburada fırsatlarını senin için listeledim.',
-      headerImageUrl: '',
-      primaryColor: '#FF6000'
-    };
-    return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
-  });
+    fetch('/api/db')
+      .then(res => res.json())
+      .then(data => {
+        if (data && Object.keys(data).length > 0) {
+          if (data.campaigns) setCampaigns(data.campaigns);
+          if (data.settings) setSettings({ ...defaultSettings, ...data.settings });
+          if (data.wpSettings) setWPSettings({ ...defaultWPSettings, ...data.wpSettings });
+        } else {
+          // Migration from localStorage if DB is empty
+          const savedCampaigns = localStorage.getItem('campaigns');
+          const savedSettings = localStorage.getItem('siteSettings');
+          const savedWPSettings = localStorage.getItem('wpSettings');
+
+          if (savedCampaigns) setCampaigns(JSON.parse(savedCampaigns));
+          if (savedSettings) setSettings({ ...defaultSettings, ...JSON.parse(savedSettings) });
+          if (savedWPSettings) setWPSettings({ ...defaultWPSettings, ...JSON.parse(savedWPSettings) });
+        }
+      })
+      .catch(err => console.error('Failed to load data', err))
+      .finally(() => setLoading(false));
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem('siteSettings', JSON.stringify(settings));
-  }, [settings]);
-
-  const [wpSettings, setWPSettings] = useState<WPSettings>(() => {
-    const saved = localStorage.getItem('wpSettings');
-    const defaults = {
-      siteUrl: '',
-      pageId: '',
-      username: '',
-      appPassword: ''
-    };
-    return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
-  });
-
-  useEffect(() => {
-    localStorage.setItem('wpSettings', JSON.stringify(wpSettings));
-  }, [wpSettings]);
+    if (!loading) {
+      const data = { campaigns, settings, wpSettings };
+      fetch('/api/db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      }).catch(err => console.error('Failed to save data', err));
+    }
+  }, [campaigns, settings, wpSettings, loading]);
 
   const [wpStatus, setWpStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [wpMessage, setWpMessage] = useState('');
