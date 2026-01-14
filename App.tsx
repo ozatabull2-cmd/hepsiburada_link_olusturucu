@@ -28,36 +28,59 @@ const App: React.FC = () => {
   const [wpSettings, setWPSettings] = useState<WPSettings>(defaultWPSettings);
 
   useEffect(() => {
-    fetch('/api/db')
-      .then(res => res.json())
-      .then(data => {
+    const loadData = async () => {
+      try {
+        // First try to load from local file system (works in local dev)
+        const res = await fetch('/api/db');
+        if (!res.ok) throw new Error('API not available');
+        const data = await res.json();
+
         if (data && Object.keys(data).length > 0) {
           if (data.campaigns) setCampaigns(data.campaigns);
           if (data.settings) setSettings({ ...defaultSettings, ...data.settings });
           if (data.wpSettings) setWPSettings({ ...defaultWPSettings, ...data.wpSettings });
         } else {
-          // Migration from localStorage if DB is empty
-          const savedCampaigns = localStorage.getItem('campaigns');
-          const savedSettings = localStorage.getItem('siteSettings');
-          const savedWPSettings = localStorage.getItem('wpSettings');
-
-          if (savedCampaigns) setCampaigns(JSON.parse(savedCampaigns));
-          if (savedSettings) setSettings({ ...defaultSettings, ...JSON.parse(savedSettings) });
-          if (savedWPSettings) setWPSettings({ ...defaultWPSettings, ...JSON.parse(savedWPSettings) });
+          // Migration: If DB exists but is empty, try to fill from localStorage once
+          migrateFromLocalStorage();
         }
-      })
-      .catch(err => console.error('Failed to load data', err))
-      .finally(() => setLoading(false));
+      } catch (err) {
+        // Fallback: If API fails (e.g. on Vercel), load from localStorage
+        console.log('Running in static mode, loading from localStorage');
+        migrateFromLocalStorage();
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const migrateFromLocalStorage = () => {
+      const savedCampaigns = localStorage.getItem('campaigns');
+      const savedSettings = localStorage.getItem('siteSettings');
+      const savedWPSettings = localStorage.getItem('wpSettings');
+
+      if (savedCampaigns) setCampaigns(JSON.parse(savedCampaigns));
+      if (savedSettings) setSettings({ ...defaultSettings, ...JSON.parse(savedSettings) });
+      if (savedWPSettings) setWPSettings({ ...defaultWPSettings, ...JSON.parse(savedWPSettings) });
+    };
+
+    loadData();
   }, []);
 
   useEffect(() => {
     if (!loading) {
+      // Try saving to file system first
       const data = { campaigns, settings, wpSettings };
       fetch('/api/db', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
-      }).catch(err => console.error('Failed to save data', err));
+      }).then(res => {
+        if (!res.ok) throw new Error('API not available');
+      }).catch(() => {
+        // Fallback: Save to localStorage if API fails
+        localStorage.setItem('campaigns', JSON.stringify(campaigns));
+        localStorage.setItem('siteSettings', JSON.stringify(settings));
+        localStorage.setItem('wpSettings', JSON.stringify(wpSettings));
+      });
     }
   }, [campaigns, settings, wpSettings, loading]);
 
